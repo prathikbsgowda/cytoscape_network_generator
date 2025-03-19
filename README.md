@@ -1,6 +1,6 @@
 # Kinase-Substrate Network Visualization
 
-![Graph Visualization](https://your-image-url.com/graph.png)
+
 
 ## 🚀 Overview
 This project provides a web-based interface for visualizing kinase-substrate networks using **Cytoscape.js**. Users can upload data files to generate interactive network graphs and download the visualizations as **PNG or JPG** images.
