@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cytoscape Kinase Network</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.21.0/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        #cy {
+            width: 100%;
+            height: 800px;
+            border: 1px solid black;
+        }
+        .control-panel {
+            margin: 10px 0;
+        }
+        button {
+            padding: 8px 12px;
+            margin-right: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h2>Kinase-Substrate Network Visualization</h2>
+    <div class="control-panel">
+        <input type="file" id="fileInput" />
+        <button id="downloadPngBtn" class="hidden">Download PNG</button>
+        <button id="downloadJpgBtn" class="hidden">Download JPG</button>
+    </div>
+    <div id="cy"></div>
+    <script>
+        let kinases = {};  
+        document.getElementById('fileInput').addEventListener('change', handleFile, false);
+        document.getElementById('downloadPngBtn').addEventListener('click', function() {
+            handleDownload('png');
+        });
+        document.getElementById('downloadJpgBtn').addEventListener('click', function() {
+            handleDownload('jpg');
+        });
+
+        function handleFile(event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                const jsonData = XLSX.utils.sheet_to_json(sheet);
+                
+                processKinaseData(jsonData);
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+
+        function processKinaseData(data) {
+            const centralKinase = "BRD4_S1117";
+            kinases = {}; 
+            
+            data.forEach(row => {
+                const kinase = row['kinase'];
+                const substrates = row['substrates'].split('; ').map(s => s.trim());
+                kinases[kinase] = substrates;
+            });
+            
+            const elements = [];
+            const substrateMap = {};
+            
+            elements.push({
+                data: { id: centralKinase, label: centralKinase },
+                style: { 'background-color': 'red', 'width': 50, 'height': 50, 'shape': 'diamond' }
+            });
+            
+            const kinaseNodes = [];
+            const substrateNodes = [];
+            const edges = [];
+            
+            Object.entries(kinases).forEach(([kinase, substrates]) => {
+                kinaseNodes.push({
+                    data: { id: kinase, label: kinase },
+                    style: { 'background-color': 'orange', 'width': 40, 'height': 40, 'shape': 'ellipse' }
+                });
+                edges.push({
+                    data: { id: `${centralKinase}_${kinase}`, source: centralKinase, target: kinase, weight: 2 },
+                    style: { 'width': 2, 'line-color': 'green' }
+                });
+                
+                substrates.forEach(substrate => {
+                    if (!substrateMap[substrate]) {
+                        substrateMap[substrate] = { id: substrate, label: substrate };
+                        substrateNodes.push({
+                            data: { id: substrate, label: substrate },
+                            style: { 'background-color': 'lightblue', 'width': 30, 'height': 30, 'shape': 'rectangle' }
+                        });
+                    }
+                    edges.push({
+                        data: { id: `${kinase}_${substrate}`, source: kinase, target: substrate, weight: 1 },
+                        style: { 'width': 1, 'line-color': 'gray' }
+                    });
+                });
+            });
+            
+            renderGraph([...elements, ...kinaseNodes, ...substrateNodes, ...edges]);
+        }
+
+        function renderGraph(elements) {
+            const cy = cytoscape({
+                container: document.getElementById('cy'),
+                elements: elements,
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'label': 'data(label)',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'font-size': '8px',
+                            'color': 'black'
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'curve-style': 'bezier',
+                            'target-arrow-shape': 'triangle'
+                        }
+                    }
+                ],
+                layout: {
+                    name: "cose",
+                    nodeDimensionsIncludeLabels: true,
+                    idealEdgeLength: 300,
+                    spacingFactor: 10,
+                    nodeOverlap: 190,
+                    refresh: 20,
+                    fit: true,
+                    padding: 30,
+                    randomize: false,
+                    componentSpacing: 100,
+                    nodeRepulsion: function (node) {
+                      return 4096;
+                    },
+                    edgeElasticity: function (edge) {
+                      return 32;
+                    },
+                    nestingFactor: 1.2,
+                    gravity: 1,
+                    numIter: 1000,
+                    initialTemp: 1000,
+                    coolingFactor: 0.99,
+                    minTemp: 1.0,
+                },
+                userPanningEnabled: true,
+                userZoomingEnabled: true
+            });
+
+            window.cy = cy;
+            document.getElementById('fileInput').classList.add('hidden');
+            // document.querySelector('.download-buttons').classList.remove('hidden');
+            
+            // Show download buttons after rendering the graph
+            document.getElementById('downloadPngBtn').classList.remove('hidden');
+            document.getElementById('downloadJpgBtn').classList.remove('hidden');
+        }
+
+        function handleDownload(format) {
+            if (!window.cy) {
+                alert("Please load a graph first.");
+                return;
+            }
+
+            if (format === "png") {
+                try {
+                    const pngData = window.cy.png({
+                        output: 'blob',
+                        scale: 5,
+                        bg: 'white',
+                        full: true
+                    });
+                    
+                    saveAs(pngData, "kinase-network.png");
+                } catch (e) {
+                    console.error("PNG export error:", e);
+                    alert("There was an error generating the PNG. Please try using JPG instead.");
+                }
+            } else if (format === "jpg") {
+                try {
+                    const dataUrl = window.cy.jpg({ 
+                        full: true, 
+                        scale: 5,
+                        quality: 1.0,
+                        bg: 'white'
+                    });
+                    
+                    const link = document.createElement('a');
+                    link.href = dataUrl;
+                    link.download = "kinase-network.jpg";
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } catch (e) {
+                    console.error("JPG export error:", e);
+                    alert("There was an error generating the JPG.");
+                }
+            }
+        }
+    </script>
+</body>
+</html>
